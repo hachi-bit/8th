@@ -137,7 +137,27 @@
       var xrScene = XR8.Threejs.xrScene();
       var scene = xrScene.scene;
       var camera = xrScene.camera;
+      var renderer = xrScene.renderer;
       camera.position.set(0, 1.4, 0);
+
+      // カメラ映像/three.jsレンダラーが画面全体を覆わない不具合対策:
+      // 初期化タイミング(モバイルのアドレスバー表示状態など)によってはレンダラーが
+      // 実際のビューポートより小さいサイズで初期化されることがあるため、明示的にリサイズする。
+      // これがずれるとhitTestAtScreenPoint()の正規化座標(window.innerWidth/Height基準)と
+      // 実際にレンダリングされているカメラ映像の範囲が食い違い、タップ位置と計測位置がずれる。
+      function resizeToWindow() {
+        var width = window.innerWidth;
+        var height = window.innerHeight;
+        renderer.setPixelRatio(window.devicePixelRatio || 1);
+        renderer.setSize(width, height);
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+      }
+      resizeToWindow();
+      window.addEventListener('resize', resizeToWindow);
+      window.addEventListener('orientationchange', function () {
+        setTimeout(resizeToWindow, 300);
+      });
 
       scene.add(new THREE.AmbientLight(0xffffff, 0.8));
       var directional = new THREE.DirectionalLight(0xffffff, 0.5);
