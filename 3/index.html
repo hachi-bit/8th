@@ -62,7 +62,7 @@
 
 <canvas id="camerafeed"></canvas>
 
-<div id="hint" class="ui-text">床をタップすると評価タワーが実寸大で立つのら。周りを歩いて見て回れるで</div>
+<div id="hint" class="ui-text">床をタップすると評価タワーが実寸大で表示されます。周りを歩いて見てみてください</div>
 <div id="status" class="ui-text">初期化中...</div>
 
 <div id="legend">
@@ -95,12 +95,12 @@
   var isSecureContext = window.location.protocol === 'https:' ||
     window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
   if (!isSecureContext) {
-    showFatalError('このデモはHTTPS接続が必要なのら。https:// で始まるURLでアクセスしてや。');
+    showFatalError('このデモにはHTTPS接続が必要です。https:// で始まるURLでアクセスしてください。');
   }
 
   var xr8LoadTimer = setTimeout(function () {
     if (!window.XR8) {
-      showFatalError('ARエンジンの読み込みに失敗したのら。通信環境を確認して、ページを再読み込みしてみてや。');
+      showFatalError('ARエンジンの読み込みに失敗しました。通信環境を確認し、ページを再読み込みしてください。');
     }
   }, 15000);
 
@@ -229,7 +229,7 @@
       directional.position.set(1, 3, 1);
       scene.add(directional);
 
-      setStatus('床をスキャン中... カメラをゆっくり動かしてみてや');
+      setStatus('床をスキャン中です。カメラをゆっくり動かしてください');
 
       // 03-proposal-tower-ar.md 5.1節: 本デモでは1個だけ配置可能とする
       var placed = false;
@@ -240,7 +240,7 @@
 
         var pos = hitTestAtScreenPoint(clientX, clientY);
         if (!pos) {
-          setStatus('平面が検出されへんかった。カメラをゆっくり動かして周囲をスキャンしてみて');
+          setStatus('平面が検出できませんでした。カメラをゆっくり動かして周囲をスキャンしてください');
           return;
         }
 
@@ -248,7 +248,7 @@
         placedTower.position.set(pos.x, pos.y, pos.z);
         scene.add(placedTower);
         placed = true;
-        setStatus('配置完了。歩いて周りから見てみてや');
+        setStatus('配置が完了しました。周りを歩いて見てみてください');
       }
 
       var canvas = document.getElementById('camerafeed');
@@ -276,7 +276,7 @@
             placedTower = null;
           }
           placed = false;
-          setStatus('原点をリセットしたのら。もう一度床をタップして配置してや');
+          setStatus('原点をリセットしました。もう一度床をタップして配置してください');
         }
       });
     },
