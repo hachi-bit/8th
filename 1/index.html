@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>案1: 床置き配置デモ | 8th Wall AR検証</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    overflow: hidden; background: #000; font-family: sans-serif;
+    -webkit-user-select: none; user-select: none;
+  }
+  #camerafeed { position: fixed; top: 0; left: 0; width: 100%; height: 100%; touch-action: none; }
+
+  .ui-text {
+    position: fixed; left: 0; right: 0; text-align: center;
+    color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.85);
+    pointer-events: none; z-index: 10; padding: 0 16px; box-sizing: border-box;
+  }
+  #hint {
+    top: calc(env(safe-area-inset-top, 0px) + 12px);
+    font-size: 15px; line-height: 1.4;
+  }
+  #status {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 90px);
+    font-size: 14px; line-height: 1.4;
+  }
+
+  #buttons {
+    position: fixed; right: 14px;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+    display: flex; flex-direction: column; gap: 8px; z-index: 20;
+  }
+  .btn {
+    background: rgba(0,0,0,.55); color: #fff;
+    border: 1px solid rgba(255,255,255,.4); border-radius: 8px;
+    padding: 10px 18px; font-size: 14px; font-family: sans-serif;
+    text-shadow: 0 1px 3px rgba(0,0,0,.8);
+  }
+
+  #error-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.92); color: #fff;
+    z-index: 9999; display: none; align-items: center; justify-content: center;
+    text-align: center; padding: 24px; box-sizing: border-box; font-family: sans-serif;
+    line-height: 1.6; font-size: 15px;
+  }
+  #error-overlay.show { display: flex; }
+</style>
+</head>
+<body>
+
+<canvas id="camerafeed"></canvas>
+
+<div id="hint" class="ui-text">床(平面)をタップすると、その場所にオブジェクトが置かれるのら。歩いて周りから見てみてや</div>
+<div id="status" class="ui-text">初期化中...</div>
+
+<div id="buttons">
+  <button class="btn" id="recenter-btn">Recenter</button>
+</div>
+
+<div id="error-overlay"><div id="error-msg"></div></div>
+
+<!-- 00-common-setup.md 3節: three.jsを必ず8th Wallエンジンより先に読み込む -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js" async crossorigin="anonymous" data-preload-chunks="slam"></script>
+
+<script>
+(function () {
+  'use strict';
+
+  function showFatalError(msg) {
+    var overlay = document.getElementById('error-overlay');
+    document.getElementById('error-msg').textContent = msg;
+    overlay.classList.add('show');
+  }
+
+  // 共通受け入れ基準: HTTPS以外でのアクセス時は即座にエラー表示する
+  var isSecureContext = window.location.protocol === 'https:' ||
+    window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  if (!isSecureContext) {
+    showFatalError('このデモはHTTPS接続が必要なのら。https:// で始まるURLでアクセスしてや。');
+  }
+
+  // 共通受け入れ基準: window.XR8が一定時間経っても読み込まれない場合はエラー表示
+  var xr8LoadTimer = setTimeout(function () {
+    if (!window.XR8) {
+      showFatalError('ARエンジンの読み込みに失敗したのら。通信環境を確認して、ページを再読み込みしてみてや。');
+    }
+  }, 15000);
+
+  function setStatus(text) {
+    var el = document.getElementById('status');
+    if (el) el.textContent = text;
+  }
+
+  // 00-common-setup.md 3.4節: 共通ヒットテスト関数
+  function hitTestAtScreenPoint(clientX, clientY) {
+    var x = clientX / window.innerWidth;
+    var y = clientY / window.innerHeight;
+    // 要検証(00-common-setup.md 6-2): hitTest()の戻り値がワールド座標かカメラ相対座標かは実機ログで未確認。
+    // 本デモでは「ワールド座標である」という8th Wall公式サンプルの前提で実装している。
+    var results = XR8.XrController.hitTest(x, y, ['FEATURE_POINT']);
+    if (!results || results.length === 0) return null;
+    return results[0].position;
+  }
+
+  var placedCount = 0;
+
+  var sceneModule = {
+    name: 'floorplacement',
+    onStart: function () {
+      clearTimeout(xr8LoadTimer);
+      var xrScene = XR8.Threejs.xrScene();
+      var scene = xrScene.scene;
+      var camera = xrScene.camera;
+      // カメラYを非ゼロにするのは8th Wall公式Tips(スケール基準の安定化に寄与)
+      camera.position.set(0, 1.4, 0);
+
+      scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+      var directional = new THREE.DirectionalLight(0xffffff, 0.6);
+      directional.position.set(1, 3, 1);
+      scene.add(directional);
+
+      setStatus('平面をスキャン中... カメラをゆっくり動かしてみてや');
+
+      function placeCubeAt(pos) {
+        var geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+        var material = new THREE.MeshStandardMaterial({ color: 0x2f8fff });
+        var cube = new THREE.Mesh(geometry, material);
+        // 立方体が床に埋まらないよう、ヒットテストのY座標に半分の高さ(0.1m)を足す
+        cube.position.set(pos.x, pos.y + 0.1, pos.z);
+        scene.add(cube);
+        placedCount += 1;
+        setStatus('配置済み: ' + placedCount + '個');
+      }
+
+      function handleTap(clientX, clientY) {
+        var pos = hitTestAtScreenPoint(clientX, clientY);
+        if (!pos) {
+          setStatus('平面が検出されへんかった。カメラをゆっくり動かして周囲をスキャンしてみて');
+          return;
+        }
+        placeCubeAt(pos);
+      }
+
+      var canvas = document.getElementById('camerafeed');
+      canvas.addEventListener('touchstart', function (e) {
+        if (e.touches.length === 1) {
+          handleTap(e.touches[0].clientX, e.touches[0].clientY);
+        }
+      });
+      canvas.addEventListener('click', function (e) {
+        handleTap(e.clientX, e.clientY);
+      });
+
+      document.getElementById('recenter-btn').addEventListener('click', function () {
+        // 要検証(00-common-setup.md 6-3): iOS Safariでのrecenter()挙動がAndroidと同一かは実機確認が必要
+        if (window.XR8 && XR8.XrController) {
+          XR8.XrController.recenter();
+        }
+      });
+    },
+  };
+
+  var onxrloaded = function () {
+    XR8.addCameraPipelineModules([
+      XR8.GlTextureRenderer.pipelineModule(),
+      XR8.Threejs.pipelineModule(),
+      XR8.XrController.pipelineModule(),
+      sceneModule,
+    ]);
+    XR8.run({ canvas: document.getElementById('camerafeed') });
+  };
+
+  window.addEventListener('load', function () {
+    if (window.XR8) {
+      onxrloaded();
+    } else {
+      window.addEventListener('xrloaded', onxrloaded);
+    }
+  });
+})();
+</script>
+</body>
+</html>
