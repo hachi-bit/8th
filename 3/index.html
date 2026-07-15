@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>案3: 提案評価タワーAR配置 | 8th Wall AR検証</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    overflow: hidden; background: #000; font-family: sans-serif;
+    -webkit-user-select: none; user-select: none;
+  }
+  #camerafeed { position: fixed; top: 0; left: 0; width: 100%; height: 100%; touch-action: none; }
+
+  .ui-text {
+    position: fixed; left: 0; right: 0; text-align: center;
+    color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.85);
+    pointer-events: none; z-index: 10; padding: 0 16px; box-sizing: border-box;
+  }
+  #hint {
+    top: calc(env(safe-area-inset-top, 0px) + 12px);
+    font-size: 15px; line-height: 1.4;
+  }
+  #status {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 150px);
+    font-size: 14px; line-height: 1.4;
+  }
+
+  #legend {
+    position: fixed; left: 14px;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+    z-index: 10; color: #fff; font-size: 13px; line-height: 1.7;
+    text-shadow: 0 1px 4px rgba(0,0,0,.85);
+    background: rgba(0,0,0,.35); border-radius: 8px; padding: 8px 12px;
+    pointer-events: none;
+  }
+  #legend .row { display: flex; align-items: center; gap: 6px; }
+  #legend .swatch { width: 12px; height: 12px; border-radius: 2px; flex: none; }
+
+  #buttons {
+    position: fixed; right: 14px;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+    display: flex; flex-direction: column; gap: 8px; z-index: 20;
+  }
+  .btn {
+    background: rgba(0,0,0,.55); color: #fff;
+    border: 1px solid rgba(255,255,255,.4); border-radius: 8px;
+    padding: 10px 18px; font-size: 14px; font-family: sans-serif;
+    text-shadow: 0 1px 3px rgba(0,0,0,.8);
+  }
+
+  #error-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.92); color: #fff;
+    z-index: 9999; display: none; align-items: center; justify-content: center;
+    text-align: center; padding: 24px; box-sizing: border-box; font-family: sans-serif;
+    line-height: 1.6; font-size: 15px;
+  }
+  #error-overlay.show { display: flex; }
+</style>
+</head>
+<body>
+
+<canvas id="camerafeed"></canvas>
+
+<div id="hint" class="ui-text">床をタップすると評価タワーが実寸大で立つのら。周りを歩いて見て回れるで</div>
+<div id="status" class="ui-text">初期化中...</div>
+
+<div id="legend">
+  <div class="row"><span class="swatch" style="background:#4d94ff"></span>コスト/価値</div>
+  <div class="row"><span class="swatch" style="background:#7CFC9A"></span>品質</div>
+  <div class="row"><span class="swatch" style="background:#ffb84d"></span>スケジュール</div>
+  <div class="row"><span class="swatch" style="background:#ff6b6b"></span>実績</div>
+</div>
+
+<div id="buttons">
+  <button class="btn" id="recenter-btn">Recenter</button>
+</div>
+
+<div id="error-overlay"><div id="error-msg"></div></div>
+
+<!-- 00-common-setup.md 3節: three.jsを必ず8th Wallエンジンより先に読み込む -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js" async crossorigin="anonymous" data-preload-chunks="slam"></script>
+
+<script>
+(function () {
+  'use strict';
+
+  function showFatalError(msg) {
+    var overlay = document.getElementById('error-overlay');
+    document.getElementById('error-msg').textContent = msg;
+    overlay.classList.add('show');
+  }
+
+  var isSecureContext = window.location.protocol === 'https:' ||
+    window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  if (!isSecureContext) {
+    showFatalError('このデモはHTTPS接続が必要なのら。https:// で始まるURLでアクセスしてや。');
+  }
+
+  var xr8LoadTimer = setTimeout(function () {
+    if (!window.XR8) {
+      showFatalError('ARエンジンの読み込みに失敗したのら。通信環境を確認して、ページを再読み込みしてみてや。');
+    }
+  }, 15000);
+
+  function setStatus(text) {
+    var el = document.getElementById('status');
+    if (el) el.textContent = text;
+  }
+
+  // 00-common-setup.md 3.4節: 共通ヒットテスト関数
+  function hitTestAtScreenPoint(clientX, clientY) {
+    var x = clientX / window.innerWidth;
+    var y = clientY / window.innerHeight;
+    // 要検証(00-common-setup.md 6-2): hitTest()の戻り値の座標系は実機ログで未確認。
+    var results = XR8.XrController.hitTest(x, y, ['FEATURE_POINT']);
+    if (!results || results.length === 0) return null;
+    return results[0].position;
+  }
+
+  // 03-proposal-tower-ar.md 3節: サンプルスコア(ハードコード、実データ連携はスコープ外)
+  var SCORES = {
+    cost: 0.7,
+    quality: 0.85,
+    schedule: 0.55,
+    track: 0.9,
+  };
+  var COLORS = {
+    cost: 0x4d94ff,
+    quality: 0x7CFC9A,
+    schedule: 0xffb84d,
+    track: 0xff6b6b,
+  };
+  var AXIS_ORDER = ['cost', 'quality', 'schedule', 'track'];
+  var TOWER_MAX_HEIGHT = 1.2;
+
+  function buildTower() {
+    var group = new THREE.Group();
+
+    // 台座
+    var baseHeight = 0.02;
+    var baseGeometry = new THREE.CylinderGeometry(0.205, 0.205, baseHeight, 32);
+    var baseMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
+    var base = new THREE.Mesh(baseGeometry, baseMaterial);
+    base.position.y = baseHeight / 2;
+    group.add(base);
+
+    // 4軸セグメント(下から cost -> quality -> schedule -> track)
+    var unitHeightPerScore = TOWER_MAX_HEIGHT / AXIS_ORDER.length; // 満点合計(4)で割った単位
+    var currentY = baseHeight;
+    AXIS_ORDER.forEach(function (axis) {
+      var score = SCORES[axis];
+      var segmentHeight = Math.max(unitHeightPerScore * score, 0.001);
+      var geometry = new THREE.CylinderGeometry(0.12, 0.12, segmentHeight, 32);
+      var material = new THREE.MeshStandardMaterial({ color: COLORS[axis] });
+      var segment = new THREE.Mesh(geometry, material);
+      segment.position.y = currentY + segmentHeight / 2;
+      group.add(segment);
+      currentY += segmentHeight;
+    });
+
+    // 総合スコア球(タワー最上部から0.1m浮かせる)
+    var overall = (SCORES.cost + SCORES.quality + SCORES.schedule + SCORES.track) / 4;
+    var sphereRadius = 0.06 + overall * 0.05;
+    var sphereGeometry = new THREE.SphereGeometry(sphereRadius, 24, 24);
+    var sphereMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: 0x333333,
+    });
+    var sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+    sphere.position.y = currentY + 0.1;
+    group.add(sphere);
+
+    return group;
+  }
+
+  var sceneModule = {
+    name: 'proposaltowerar',
+    onStart: function () {
+      clearTimeout(xr8LoadTimer);
+      var xrScene = XR8.Threejs.xrScene();
+      var scene = xrScene.scene;
+      var camera = xrScene.camera;
+      camera.position.set(0, 1.4, 0);
+
+      scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+      var directional = new THREE.DirectionalLight(0xffffff, 0.6);
+      directional.position.set(1, 3, 1);
+      scene.add(directional);
+
+      setStatus('床をスキャン中... カメラをゆっくり動かしてみてや');
+
+      // 03-proposal-tower-ar.md 5.1節: 本デモでは1個だけ配置可能とする
+      var placed = false;
+
+      function handleTap(clientX, clientY) {
+        if (placed) return; // 2回目以降のタップは無視
+
+        var pos = hitTestAtScreenPoint(clientX, clientY);
+        if (!pos) {
+          setStatus('平面が検出されへんかった。カメラをゆっくり動かして周囲をスキャンしてみて');
+          return;
+        }
+
+        var tower = buildTower();
+        tower.position.set(pos.x, pos.y, pos.z);
+        scene.add(tower);
+        placed = true;
+        setStatus('配置完了。歩いて周りから見てみてや');
+      }
+
+      var canvas = document.getElementById('camerafeed');
+      canvas.addEventListener('touchstart', function (e) {
+        if (e.touches.length === 1) {
+          handleTap(e.touches[0].clientX, e.touches[0].clientY);
+        }
+      });
+      canvas.addEventListener('click', function (e) {
+        handleTap(e.clientX, e.clientY);
+      });
+
+      document.getElementById('recenter-btn').addEventListener('click', function () {
+        if (window.XR8 && XR8.XrController) {
+          XR8.XrController.recenter();
+        }
+      });
+    },
+  };
+
+  var onxrloaded = function () {
+    XR8.addCameraPipelineModules([
+      XR8.GlTextureRenderer.pipelineModule(),
+      XR8.Threejs.pipelineModule(),
+      XR8.XrController.pipelineModule(),
+      sceneModule,
+    ]);
+    XR8.run({ canvas: document.getElementById('camerafeed') });
+  };
+
+  window.addEventListener('load', function () {
+    if (window.XR8) {
+      onxrloaded();
+    } else {
+      window.addEventListener('xrloaded', onxrloaded);
+    }
+  });
+
+  // 03-proposal-tower-ar.md 9節: マルチユーザーAR(複数人で同じタワーを共有)は
+  // 8th Wallの現行の無償構成では非対応。将来的にVPS等の代替手段が必要になる可能性がある。
+})();
+</script>
+</body>
+</html>

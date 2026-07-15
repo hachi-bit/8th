@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>8th Wall AR検証プロジェクト</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: #111; color: #fff; font-family: sans-serif;
+  }
+  main {
+    max-width: 480px; margin: 0 auto; padding: 32px 20px 48px;
+    box-sizing: border-box;
+  }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  p.lead { color: #aaa; font-size: 14px; margin-top: 0; margin-bottom: 28px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { margin-bottom: 14px; }
+  a.demo-link {
+    display: block; padding: 16px; border-radius: 10px;
+    background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15);
+    color: #fff; text-decoration: none;
+  }
+  a.demo-link:active { background: rgba(255,255,255,.16); }
+  a.demo-link .title { font-size: 16px; font-weight: bold; margin-bottom: 4px; }
+  a.demo-link .desc { font-size: 13px; color: #bbb; }
+  footer { margin-top: 32px; font-size: 12px; color: #666; }
+</style>
+</head>
+<body>
+<main>
+  <h1>8th Wall AR検証プロジェクト</h1>
+  <p class="lead">8th Wallによるマーカーレス環境認識ARの動作検証デモ集です。HTTPS経由でスマートフォンのブラウザからアクセスしてください。</p>
+  <ul>
+    <li>
+      <a class="demo-link" href="./1/">
+        <div class="title">案1: 床置き配置デモ</div>
+        <div class="desc">タップした場所に実寸大のオブジェクトを配置する、平面検出の基本性能検証デモ</div>
+      </a>
+    </li>
+    <li>
+      <a class="demo-link" href="./2/">
+        <div class="title">案2: ARバーチャル巻尺</div>
+        <div class="desc">2点タップでその間の実寸距離をメートル表示する、スケール精度検証デモ</div>
+      </a>
+    </li>
+    <li>
+      <a class="demo-link" href="./3/">
+        <div class="title">案3: 提案評価タワーAR</div>
+        <div class="desc">4軸評価スコアを実寸大の積み上げタワーとして現実空間に配置するデモ</div>
+      </a>
+    </li>
+  </ul>
+  <footer>詳細仕様は <code>specs/</code> フォルダを参照してください。</footer>
+</main>
+</body>
+</html>
