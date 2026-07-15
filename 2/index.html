@@ -110,14 +110,35 @@
     }
   }
 
+  // 精度検証用: onStartで設定される。ヒットテスト結果とカメラ位置の距離をログに出すために使う。
+  var currentCamera = null;
+
   // 00-common-setup.md 3.4節: 共通ヒットテスト関数
   function hitTestAtScreenPoint(clientX, clientY) {
     var x = clientX / window.innerWidth;
     var y = clientY / window.innerHeight;
     // 要検証(00-common-setup.md 6-2): hitTest()の戻り値の座標系は実機ログで未確認。
     var results = XR8.XrController.hitTest(x, y, ['FEATURE_POINT']);
-    if (!results || results.length === 0) return null;
-    return results[0].position;
+    if (!results || results.length === 0) {
+      console.log('[hitTest] miss', { clientX: clientX, clientY: clientY, normX: x, normY: y });
+      return null;
+    }
+    var pos = results[0].position;
+    var logInfo = {
+      clientX: clientX, clientY: clientY, normX: x, normY: y,
+      resultCount: results.length,
+      position: { x: pos.x, y: pos.y, z: pos.z },
+      allResults: results.map(function (r) { return { x: r.position.x, y: r.position.y, z: r.position.z }; }),
+    };
+    if (currentCamera) {
+      var cp = currentCamera.position;
+      logInfo.cameraPosition = { x: cp.x, y: cp.y, z: cp.z };
+      logInfo.distanceFromCamera = Math.sqrt(
+        Math.pow(pos.x - cp.x, 2) + Math.pow(pos.y - cp.y, 2) + Math.pow(pos.z - cp.z, 2)
+      );
+    }
+    console.log('[hitTest] hit', logInfo);
+    return pos;
   }
 
   // 02-ar-ruler.md 7節: 本デモではAbsolute Scale(バイナリ限定機能)は使用しない。
@@ -139,6 +160,7 @@
       var camera = xrScene.camera;
       var renderer = xrScene.renderer;
       camera.position.set(0, 1.4, 0);
+      currentCamera = camera;
 
       // カメラ映像/three.jsレンダラーが画面全体を覆わない不具合対策:
       // 初期化タイミング(モバイルのアドレスバー表示状態など)によってはレンダラーが
@@ -234,6 +256,7 @@
           makeSphere(p2, 0x4d94ff);
           makeLine(p1, p2);
           var meters = euclideanDistance(p1, p2);
+          console.log('[hitTest] distance computed', { p1: p1, p2: p2, meters: meters });
           setDistanceText(meters.toFixed(2) + ' m');
           state = 'done';
           setStatus('計測完了。もう一度タップすると新しい計測を始めるで');

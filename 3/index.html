@@ -109,14 +109,35 @@
     if (el) el.textContent = text;
   }
 
+  // 精度検証用: onStartで設定される。ヒットテスト結果とカメラ位置の距離をログに出すために使う。
+  var currentCamera = null;
+
   // 00-common-setup.md 3.4節: 共通ヒットテスト関数
   function hitTestAtScreenPoint(clientX, clientY) {
     var x = clientX / window.innerWidth;
     var y = clientY / window.innerHeight;
     // 要検証(00-common-setup.md 6-2): hitTest()の戻り値の座標系は実機ログで未確認。
     var results = XR8.XrController.hitTest(x, y, ['FEATURE_POINT']);
-    if (!results || results.length === 0) return null;
-    return results[0].position;
+    if (!results || results.length === 0) {
+      console.log('[hitTest] miss', { clientX: clientX, clientY: clientY, normX: x, normY: y });
+      return null;
+    }
+    var pos = results[0].position;
+    var logInfo = {
+      clientX: clientX, clientY: clientY, normX: x, normY: y,
+      resultCount: results.length,
+      position: { x: pos.x, y: pos.y, z: pos.z },
+      allResults: results.map(function (r) { return { x: r.position.x, y: r.position.y, z: r.position.z }; }),
+    };
+    if (currentCamera) {
+      var cp = currentCamera.position;
+      logInfo.cameraPosition = { x: cp.x, y: cp.y, z: cp.z };
+      logInfo.distanceFromCamera = Math.sqrt(
+        Math.pow(pos.x - cp.x, 2) + Math.pow(pos.y - cp.y, 2) + Math.pow(pos.z - cp.z, 2)
+      );
+    }
+    console.log('[hitTest] hit', logInfo);
+    return pos;
   }
 
   // 03-proposal-tower-ar.md 3節: サンプルスコア(ハードコード、実データ連携はスコープ外)
@@ -184,6 +205,7 @@
       var camera = xrScene.camera;
       var renderer = xrScene.renderer;
       camera.position.set(0, 1.4, 0);
+      currentCamera = camera;
 
       // カメラ映像/three.jsレンダラーが画面全体を覆わない不具合対策:
       // 初期化タイミング(モバイルのアドレスバー表示状態など)によってはレンダラーが
@@ -211,6 +233,7 @@
 
       // 03-proposal-tower-ar.md 5.1節: 本デモでは1個だけ配置可能とする
       var placed = false;
+      var placedTower = null;
 
       function handleTap(clientX, clientY) {
         if (placed) return; // 2回目以降のタップは無視
@@ -221,9 +244,9 @@
           return;
         }
 
-        var tower = buildTower();
-        tower.position.set(pos.x, pos.y, pos.z);
-        scene.add(tower);
+        placedTower = buildTower();
+        placedTower.position.set(pos.x, pos.y, pos.z);
+        scene.add(placedTower);
         placed = true;
         setStatus('配置完了。歩いて周りから見てみてや');
       }
@@ -239,8 +262,21 @@
       });
 
       document.getElementById('recenter-btn').addEventListener('click', function () {
+        // recenter()は原点を再定義するだけで、配置済みタワーの座標は補正されないため、
+        // そのままだとタワーが全然違う場所に表示されてしまう。混乱を避けるため、
+        // recenter実行時は配置済みタワーを消して再配置可能な状態に戻す。
         if (window.XR8 && XR8.XrController) {
           XR8.XrController.recenter();
+          if (placedTower) {
+            scene.remove(placedTower);
+            placedTower.traverse(function (obj) {
+              if (obj.geometry) obj.geometry.dispose();
+              if (obj.material) obj.material.dispose();
+            });
+            placedTower = null;
+          }
+          placed = false;
+          setStatus('原点をリセットしたのら。もう一度床をタップして配置してや');
         }
       });
     },

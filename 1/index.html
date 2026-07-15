@@ -93,6 +93,9 @@
     if (el) el.textContent = text;
   }
 
+  // 精度検証用: onStartで設定される。ヒットテスト結果とカメラ位置の距離をログに出すために使う。
+  var currentCamera = null;
+
   // 00-common-setup.md 3.4節: 共通ヒットテスト関数
   function hitTestAtScreenPoint(clientX, clientY) {
     var x = clientX / window.innerWidth;
@@ -100,8 +103,26 @@
     // 要検証(00-common-setup.md 6-2): hitTest()の戻り値がワールド座標かカメラ相対座標かは実機ログで未確認。
     // 本デモでは「ワールド座標である」という8th Wall公式サンプルの前提で実装している。
     var results = XR8.XrController.hitTest(x, y, ['FEATURE_POINT']);
-    if (!results || results.length === 0) return null;
-    return results[0].position;
+    if (!results || results.length === 0) {
+      console.log('[hitTest] miss', { clientX: clientX, clientY: clientY, normX: x, normY: y });
+      return null;
+    }
+    var pos = results[0].position;
+    var logInfo = {
+      clientX: clientX, clientY: clientY, normX: x, normY: y,
+      resultCount: results.length,
+      position: { x: pos.x, y: pos.y, z: pos.z },
+      allResults: results.map(function (r) { return { x: r.position.x, y: r.position.y, z: r.position.z }; }),
+    };
+    if (currentCamera) {
+      var cp = currentCamera.position;
+      logInfo.cameraPosition = { x: cp.x, y: cp.y, z: cp.z };
+      logInfo.distanceFromCamera = Math.sqrt(
+        Math.pow(pos.x - cp.x, 2) + Math.pow(pos.y - cp.y, 2) + Math.pow(pos.z - cp.z, 2)
+      );
+    }
+    console.log('[hitTest] hit', logInfo);
+    return pos;
   }
 
   var placedCount = 0;
@@ -116,6 +137,7 @@
       var renderer = xrScene.renderer;
       // カメラYを非ゼロにするのは8th Wall公式Tips(スケール基準の安定化に寄与)
       camera.position.set(0, 1.4, 0);
+      currentCamera = camera;
 
       // カメラ映像/three.jsレンダラーが画面全体を覆わない不具合対策:
       // 初期化タイミング(モバイルのアドレスバー表示状態など)によってはレンダラーが
@@ -141,15 +163,29 @@
 
       setStatus('平面をスキャン中... カメラをゆっくり動かしてみてや');
 
+      // Recenter時にまとめてクリアできるよう、配置済みの立方体はグループにまとめる
+      var placedGroup = new THREE.Group();
+      scene.add(placedGroup);
+
       function placeCubeAt(pos) {
         var geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
         var material = new THREE.MeshStandardMaterial({ color: 0x2f8fff });
         var cube = new THREE.Mesh(geometry, material);
         // 立方体が床に埋まらないよう、ヒットテストのY座標に半分の高さ(0.1m)を足す
         cube.position.set(pos.x, pos.y + 0.1, pos.z);
-        scene.add(cube);
+        placedGroup.add(cube);
         placedCount += 1;
         setStatus('配置済み: ' + placedCount + '個');
+      }
+
+      function clearPlacedCubes() {
+        while (placedGroup.children.length > 0) {
+          var child = placedGroup.children[0];
+          placedGroup.remove(child);
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) child.material.dispose();
+        }
+        placedCount = 0;
       }
 
       function handleTap(clientX, clientY) {
@@ -173,8 +209,15 @@
 
       document.getElementById('recenter-btn').addEventListener('click', function () {
         // 要検証(00-common-setup.md 6-3): iOS Safariでのrecenter()挙動がAndroidと同一かは実機確認が必要
+        //
+        // recenter()は「その瞬間のデバイスの位置・向き」を新しい原点として座標系を再定義するだけで、
+        // 認識した平面やこれまでに配置した物体の座標を追従・補正してはくれない。そのため、配置済みの
+        // 立方体を残したままrecenterすると、原点だけがずれて立方体が全然違う場所に表示されてしまう。
+        // ユーザーに混乱を与えるため、recenter実行時は配置済みの立方体もまとめてクリアする。
         if (window.XR8 && XR8.XrController) {
           XR8.XrController.recenter();
+          clearPlacedCubes();
+          setStatus('原点をリセットしたのら。もう一度タップして配置してや');
         }
       });
     },
