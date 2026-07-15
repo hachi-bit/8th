@@ -51,7 +51,7 @@
 
 <canvas id="camerafeed"></canvas>
 
-<div id="hint" class="ui-text">床(平面)をタップすると、その場所にオブジェクトが置かれるのら。歩いて周りから見てみてや</div>
+<div id="hint" class="ui-text">床(平面)をタップすると、その場所にオブジェクトが配置されます。歩いて周りから見てみてください</div>
 <div id="status" class="ui-text">初期化中...</div>
 
 <div id="buttons">
@@ -78,13 +78,13 @@
   var isSecureContext = window.location.protocol === 'https:' ||
     window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
   if (!isSecureContext) {
-    showFatalError('このデモはHTTPS接続が必要なのら。https:// で始まるURLでアクセスしてや。');
+    showFatalError('このデモにはHTTPS接続が必要です。https:// で始まるURLでアクセスしてください。');
   }
 
   // 共通受け入れ基準: window.XR8が一定時間経っても読み込まれない場合はエラー表示
   var xr8LoadTimer = setTimeout(function () {
     if (!window.XR8) {
-      showFatalError('ARエンジンの読み込みに失敗したのら。通信環境を確認して、ページを再読み込みしてみてや。');
+      showFatalError('ARエンジンの読み込みに失敗しました。通信環境を確認し、ページを再読み込みしてください。');
     }
   }, 15000);
 
@@ -161,7 +161,7 @@
       directional.position.set(1, 3, 1);
       scene.add(directional);
 
-      setStatus('平面をスキャン中... カメラをゆっくり動かしてみてや');
+      setStatus('平面をスキャン中です。カメラをゆっくり動かしてください');
 
       // Recenter時にまとめてクリアできるよう、配置済みの立方体はグループにまとめる
       var placedGroup = new THREE.Group();
@@ -191,7 +191,7 @@
       function handleTap(clientX, clientY) {
         var pos = hitTestAtScreenPoint(clientX, clientY);
         if (!pos) {
-          setStatus('平面が検出されへんかった。カメラをゆっくり動かして周囲をスキャンしてみて');
+          setStatus('平面が検出できませんでした。カメラをゆっくり動かして周囲をスキャンしてください');
           return;
         }
         placeCubeAt(pos);
@@ -217,7 +217,7 @@
         if (window.XR8 && XR8.XrController) {
           XR8.XrController.recenter();
           clearPlacedCubes();
-          setStatus('原点をリセットしたのら。もう一度タップして配置してや');
+          setStatus('原点をリセットしました。もう一度タップして配置してください');
         }
       });
     },
