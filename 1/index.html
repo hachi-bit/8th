@@ -113,8 +113,26 @@
       var xrScene = XR8.Threejs.xrScene();
       var scene = xrScene.scene;
       var camera = xrScene.camera;
+      var renderer = xrScene.renderer;
       // カメラYを非ゼロにするのは8th Wall公式Tips(スケール基準の安定化に寄与)
       camera.position.set(0, 1.4, 0);
+
+      // カメラ映像/three.jsレンダラーが画面全体を覆わない不具合対策:
+      // 初期化タイミング(モバイルのアドレスバー表示状態など)によってはレンダラーが
+      // 実際のビューポートより小さいサイズで初期化されることがあるため、明示的にリサイズする。
+      function resizeToWindow() {
+        var width = window.innerWidth;
+        var height = window.innerHeight;
+        renderer.setPixelRatio(window.devicePixelRatio || 1);
+        renderer.setSize(width, height);
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+      }
+      resizeToWindow();
+      window.addEventListener('resize', resizeToWindow);
+      window.addEventListener('orientationchange', function () {
+        setTimeout(resizeToWindow, 300);
+      });
 
       scene.add(new THREE.AmbientLight(0xffffff, 0.7));
       var directional = new THREE.DirectionalLight(0xffffff, 0.6);
