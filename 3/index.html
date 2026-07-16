@@ -14,6 +14,13 @@
      幅・高さはJS側(renderer.setSize)で都度設定し、位置は中央固定にする */
   #camerafeed { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); touch-action: none; background: #000; }
 
+  /* 8th Wallエンジンが内部でカメラ映像を流し込むために生成する<video>要素は、
+     以前はcanvasが画面いっぱいだったため隠れていたが、canvasを実寸レターボックス化した
+     ことで画面端に覗いて見えるようになったため、明示的に非表示にする。
+     display:noneにするとブラウザによっては映像の更新が止まる可能性があるため、
+     視覚的にのみ消す(サイズを潰す・透明化する)方法をとっている。 */
+  video { position: fixed !important; top: 0 !important; left: 0 !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; z-index: -1 !important; }
+
   .ui-text {
     position: fixed; left: 0; right: 0; text-align: center;
     color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.85);
@@ -262,6 +269,10 @@
         renderer.setSize(displayWidth, displayHeight);
         camera.aspect = displayWidth / displayHeight;
         camera.updateProjectionMatrix();
+        // 要検証: 8th Wall内部のカメラ描画ループとリサイズのタイミングがずれると、
+        // バッファが正しくクリアされず3D描画が残像として残ることがあったため、
+        // リサイズ直後に明示的にクリアする。
+        renderer.clear();
       }
       resizeToWindow();
       window.addEventListener('resize', resizeToWindow);
@@ -269,7 +280,8 @@
         nativeAspect = null; // 向きが変わるとセンサーの見え方の前提も変わるため再検出する
         setTimeout(function () {
           nativeAspect = detectNativeAspect();
-          resizeToWindow();
+          // 要検証: 8th Wallの描画フレームの合間で呼ぶことで内部状態とのズレを減らせないか試している
+          requestAnimationFrame(resizeToWindow);
         }, 300);
       });
 
@@ -280,7 +292,7 @@
         var aspect = detectNativeAspect();
         if (aspect) {
           nativeAspect = aspect;
-          resizeToWindow();
+          requestAnimationFrame(resizeToWindow);
           clearInterval(aspectDetectTimer);
         } else if (aspectDetectAttempts >= 50) {
           console.log('[camera] could not detect native video element after 10s; keeping full-screen fit');
