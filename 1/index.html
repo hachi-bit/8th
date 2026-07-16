@@ -10,7 +10,9 @@
     overflow: hidden; background: #000; font-family: sans-serif;
     -webkit-user-select: none; user-select: none;
   }
-  #camerafeed { position: fixed; top: 0; left: 0; width: 100%; height: 100%; touch-action: none; }
+  /* 実カメラ映像の縦横比を保ったまま画面に収まる最大サイズで中央表示するため、
+     幅・高さはJS側(renderer.setSize)で都度設定し、位置は中央固定にする */
+  #camerafeed { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); touch-action: none; background: #000; }
 
   .ui-text {
     position: fixed; left: 0; right: 0; text-align: center;
@@ -139,22 +141,84 @@
       camera.position.set(0, 1.4, 0);
       currentCamera = camera;
 
-      // カメラ映像/three.jsレンダラーが画面全体を覆わない不具合対策:
-      // 初期化タイミング(モバイルのアドレスバー表示状態など)によってはレンダラーが
-      // 実際のビューポートより小さいサイズで初期化されることがあるため、明示的にリサイズする。
+      // カメラ映像/three.jsレンダラーが画面全体を覆わない不具合対策として、以前は画面いっぱいに
+      // 引き伸ばしていたが、それだと実際のカメラセンサーの縦横比と画面の縦横比が一致しない場合に
+      // 映像がクロップされ「ズームしたように」見えてしまう。そのため、実際のカメラ映像の解像度を
+      // DOM上の<video>要素から検出し、その縦横比を保ったまま画面に収まる最大サイズで表示する
+      // (収まりきらない方向は黒帯になる)。
+      //
+      // 要検証: 8th Wallエンジンが内部でカメラ映像を流し込む<video>要素をDOM上に生成している、
+      // という前提で実装している。この前提が崩れる場合は検出できず、画面いっぱいの表示にフォールバックする。
+      var nativeAspect = null;
+
+      function findCameraVideoElement() {
+        var videos = document.getElementsByTagName('video');
+        for (var i = 0; i < videos.length; i++) {
+          if (videos[i].videoWidth > 0 && videos[i].videoHeight > 0) return videos[i];
+        }
+        return null;
+      }
+
+      function detectNativeAspect() {
+        var video = findCameraVideoElement();
+        if (!video) return null;
+        var vw = video.videoWidth;
+        var vh = video.videoHeight;
+        // カメラセンサーはセンサー本来の向き(横向き基準)の解像度を返すことが多いため、
+        // 画面の向きと矛盾する場合は縦横を入れ替えて実際に表示される向きに合わせる。
+        var sensorIsLandscape = vw > vh;
+        var screenIsPortrait = window.innerHeight >= window.innerWidth;
+        var aspect = (sensorIsLandscape === screenIsPortrait) ? (vh / vw) : (vw / vh);
+        console.log('[camera] detected native video resolution', {
+          videoWidth: vw, videoHeight: vh, screenIsPortrait: screenIsPortrait, computedAspect: aspect,
+        });
+        return aspect;
+      }
+
       function resizeToWindow() {
-        var width = window.innerWidth;
-        var height = window.innerHeight;
+        var windowWidth = window.innerWidth;
+        var windowHeight = window.innerHeight;
+        var displayWidth = windowWidth;
+        var displayHeight = windowHeight;
+        if (nativeAspect) {
+          var windowAspect = windowWidth / windowHeight;
+          if (windowAspect > nativeAspect) {
+            displayHeight = windowHeight;
+            displayWidth = Math.round(displayHeight * nativeAspect);
+          } else {
+            displayWidth = windowWidth;
+            displayHeight = Math.round(displayWidth / nativeAspect);
+          }
+        }
         renderer.setPixelRatio(window.devicePixelRatio || 1);
-        renderer.setSize(width, height);
-        camera.aspect = width / height;
+        renderer.setSize(displayWidth, displayHeight);
+        camera.aspect = displayWidth / displayHeight;
         camera.updateProjectionMatrix();
       }
       resizeToWindow();
       window.addEventListener('resize', resizeToWindow);
       window.addEventListener('orientationchange', function () {
-        setTimeout(resizeToWindow, 300);
+        nativeAspect = null; // 向きが変わるとセンサーの見え方の前提も変わるため再検出する
+        setTimeout(function () {
+          nativeAspect = detectNativeAspect();
+          resizeToWindow();
+        }, 300);
       });
+
+      // <video>要素は起動直後は存在しない/解像度未確定なことがあるため、見つかるまで断続的に試行する
+      var aspectDetectAttempts = 0;
+      var aspectDetectTimer = setInterval(function () {
+        aspectDetectAttempts += 1;
+        var aspect = detectNativeAspect();
+        if (aspect) {
+          nativeAspect = aspect;
+          resizeToWindow();
+          clearInterval(aspectDetectTimer);
+        } else if (aspectDetectAttempts >= 50) {
+          console.log('[camera] could not detect native video element after 10s; keeping full-screen fit');
+          clearInterval(aspectDetectTimer);
+        }
+      }, 200);
 
       scene.add(new THREE.AmbientLight(0xffffff, 0.7));
       var directional = new THREE.DirectionalLight(0xffffff, 0.6);
@@ -188,6 +252,32 @@
         placedCount = 0;
       }
 
+      // ステータス表示を「今実際にタップすれば置けるかどうか」に合わせて更新するため、
+      // 画面中央に向けて定期的にヒットテストを試す(ログを汚さないよう共通関数は使わず直接呼ぶ)。
+      // 一度でも配置できたらタップ操作で状況は分かるはずなのでポーリングは停止する。
+      var scanReady = false;
+      var scanPollTimer = null;
+      function startScanPolling() {
+        scanReady = false;
+        if (scanPollTimer) clearInterval(scanPollTimer);
+        scanPollTimer = setInterval(function () {
+          if (placedCount > 0) {
+            clearInterval(scanPollTimer);
+            scanPollTimer = null;
+            return;
+          }
+          var results = XR8.XrController.hitTest(0.5, 0.5, ['FEATURE_POINT']);
+          var ready = !!(results && results.length > 0);
+          if (ready !== scanReady) {
+            scanReady = ready;
+            setStatus(ready
+              ? '平面を検出しました。タップして配置してください'
+              : '平面をスキャン中です。カメラをゆっくり動かしてください');
+          }
+        }, 500);
+      }
+      startScanPolling();
+
       function handleTap(clientX, clientY) {
         var pos = hitTestAtScreenPoint(clientX, clientY);
         if (!pos) {
@@ -218,6 +308,7 @@
           XR8.XrController.recenter();
           clearPlacedCubes();
           setStatus('原点をリセットしました。もう一度タップして配置してください');
+          startScanPolling();
         }
       });
     },
